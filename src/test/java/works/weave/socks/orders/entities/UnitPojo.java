@@ -10,7 +10,7 @@ import com.openpojo.validation.affirm.Affirm;
 import com.openpojo.validation.rule.impl.*;
 import com.openpojo.validation.test.impl.GetterTester;
 import com.openpojo.validation.test.impl.SetterTester;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 

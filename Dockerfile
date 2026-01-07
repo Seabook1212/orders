@@ -1,4 +1,4 @@
-FROM eclipse-temurin:8-jre
+FROM eclipse-temurin:17-jre
 
 ENV	SERVICE_USER=myuser \
 	SERVICE_UID=10001 \

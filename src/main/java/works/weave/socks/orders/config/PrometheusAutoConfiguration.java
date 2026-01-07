@@ -1,35 +1,11 @@
 package works.weave.socks.orders.config;
 
-import io.prometheus.client.exporter.MetricsServlet;
-import io.prometheus.client.hotspot.DefaultExports;
-import io.prometheus.client.spring.boot.SpringBootMetricsCollector;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.actuate.endpoint.PublicMetrics;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.web.servlet.ServletRegistrationBean;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import java.util.Collection;
-
+// Prometheus metrics are now automatically configured by Spring Boot Actuator
+// with micrometer-registry-prometheus dependency
+// Metrics are available at /actuator/prometheus by default
 @Configuration
-@ConditionalOnClass(SpringBootMetricsCollector.class)
 class PrometheusAutoConfiguration {
-    @Bean
-    @ConditionalOnMissingBean(SpringBootMetricsCollector.class)
-    SpringBootMetricsCollector springBootMetricsCollector(Collection<PublicMetrics> publicMetrics) {
-        SpringBootMetricsCollector springBootMetricsCollector = new SpringBootMetricsCollector
-                (publicMetrics);
-        springBootMetricsCollector.register();
-        return springBootMetricsCollector;
-    }
-
-    @Bean
-    @ConditionalOnMissingBean(name = "prometheusMetricsServletRegistrationBean")
-    ServletRegistrationBean prometheusMetricsServletRegistrationBean(@Value("${prometheus.metrics" +
-            ".path:/metrics}") String metricsPath) {
-        DefaultExports.initialize();
-        return new ServletRegistrationBean(new MetricsServlet(), metricsPath);
-    }
+    // No custom configuration needed - Spring Boot 3 handles this automatically
 }
