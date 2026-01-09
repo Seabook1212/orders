@@ -2,7 +2,9 @@ package works.weave.socks.orders.config;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -10,6 +12,8 @@ import org.springframework.web.client.RestTemplate;
 
 import java.net.InetSocketAddress;
 import java.net.Proxy;
+import java.util.ArrayList;
+import java.util.List;
 
 @Configuration
 public class RestProxyTemplate {
@@ -21,9 +25,18 @@ public class RestProxyTemplate {
     @Value("${proxy.port:}")
     private String port;
 
+    @Autowired
+    private RestTemplateBuilder restTemplateBuilder;
+
     @Bean
     public RestTemplate restTemplate() {
-        RestTemplate restTemplate = new RestTemplate();
+        // Use RestTemplateBuilder which automatically configures tracing interceptors
+        RestTemplate restTemplate = restTemplateBuilder.build();
+
+        logger.info("Configuring RestTemplate with tracing support");
+
+        // Add custom interceptor to log trace headers
+        restTemplate.getInterceptors().add(new TracingLoggingInterceptor());
 
         if (!host.isEmpty() && !port.isEmpty()) {
             int portNr = -1;
@@ -34,12 +47,16 @@ public class RestProxyTemplate {
                 return restTemplate;
             }
 
+            logger.info("Configuring HTTP proxy: {}:{}", host, portNr);
             SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
             InetSocketAddress address = new InetSocketAddress(host, portNr);
             Proxy proxy = new Proxy(Proxy.Type.HTTP, address);
             factory.setProxy(proxy);
             restTemplate.setRequestFactory(factory);
         }
+
+        logger.info("RestTemplate configured with {} interceptors (including tracing)",
+                restTemplate.getInterceptors().size());
 
         return restTemplate;
     }

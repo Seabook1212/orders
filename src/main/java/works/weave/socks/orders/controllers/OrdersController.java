@@ -50,87 +50,146 @@ public class OrdersController {
     public
     @ResponseBody
     CustomerOrder newOrder(@RequestBody NewOrderResource item) {
-        try {
+        LOG.info("=== NEW ORDER REQUEST RECEIVED ===");
+        LOG.info("Request details - address: {}, customer: {}, card: {}, items: {}",
+                item.address, item.customer, item.card, item.items);
 
+        try {
+            // Step 1: Validate request
+            LOG.info("Step 1: Validating order request...");
             if (item.address == null || item.customer == null || item.card == null || item.items == null) {
+                LOG.error("Validation failed - Missing required fields. address={}, customer={}, card={}, items={}",
+                        item.address, item.customer, item.card, item.items);
                 throw new InvalidOrderException("Invalid order request. Order requires customer, address, card and items.");
             }
+            LOG.info("Step 1: Validation successful");
 
-
-            LOG.debug("Starting calls");
+            // Step 2: Fetch resources from external services
+            LOG.info("Step 2: Starting async calls to fetch address, customer, card, and items...");
             Future<EntityModel<Address>> addressFuture = asyncGetService.getResource(item.address, new
                     ParameterizedTypeReference<EntityModel<Address>>() {
             });
+            LOG.debug("Address request initiated for: {}", item.address);
+
             Future<EntityModel<Customer>> customerFuture = asyncGetService.getResource(item.customer, new
                     ParameterizedTypeReference<EntityModel<Customer>>() {
             });
+            LOG.debug("Customer request initiated for: {}", item.customer);
+
             Future<EntityModel<Card>> cardFuture = asyncGetService.getResource(item.card, new
                     ParameterizedTypeReference<EntityModel<Card>>() {
             });
+            LOG.debug("Card request initiated for: {}", item.card);
+
             Future<List<Item>> itemsFuture = asyncGetService.getDataList(item.items, new
                     ParameterizedTypeReference<List<Item>>() {
             });
-            LOG.debug("End of calls.");
+            LOG.debug("Items request initiated for: {}", item.items);
+            LOG.info("Step 2: All async calls initiated");
 
-            float amount = calculateTotal(itemsFuture.get(timeout, TimeUnit.SECONDS));
+            // Step 3: Wait for items and calculate total
+            LOG.info("Step 3: Waiting for items response (timeout: {} seconds)...", timeout);
+            List<Item> items = itemsFuture.get(timeout, TimeUnit.SECONDS);
+            LOG.info("Step 3: Items received, count: {}", items != null ? items.size() : 0);
 
-            // Call payment service to make sure they've paid
+            float amount = calculateTotal(items);
+            LOG.info("Step 3: Order total calculated: ${}", amount);
+
+            // Step 4: Wait for address, card, customer responses
+            LOG.info("Step 4: Waiting for address, card, and customer responses...");
+            EntityModel<Address> addressModel = addressFuture.get(timeout, TimeUnit.SECONDS);
+            LOG.info("Step 4: Address received: {}", addressModel != null ? addressModel.getContent() : "null");
+
+            EntityModel<Card> cardModel = cardFuture.get(timeout, TimeUnit.SECONDS);
+            LOG.info("Step 4: Card received: {}", cardModel != null ? cardModel.getContent() : "null");
+
+            EntityModel<Customer> customerModel = customerFuture.get(timeout, TimeUnit.SECONDS);
+            LOG.info("Step 4: Customer received: {}", customerModel != null ? customerModel.getContent() : "null");
+
+            // Step 5: Call payment service
+            LOG.info("Step 5: Preparing payment request...");
             PaymentRequest paymentRequest = new PaymentRequest(
-                    addressFuture.get(timeout, TimeUnit.SECONDS).getContent(),
-                    cardFuture.get(timeout, TimeUnit.SECONDS).getContent(),
-                    customerFuture.get(timeout, TimeUnit.SECONDS).getContent(),
+                    addressModel.getContent(),
+                    cardModel.getContent(),
+                    customerModel.getContent(),
                     amount);
-            LOG.info("Sending payment request: " + paymentRequest);
+            LOG.info("Step 5: Sending payment request to: {}, amount: ${}", config.getPaymentUri(), amount);
+
             Future<PaymentResponse> paymentFuture = asyncGetService.postResource(
                     config.getPaymentUri(),
                     paymentRequest,
                     new ParameterizedTypeReference<PaymentResponse>() {
                     });
+
             PaymentResponse paymentResponse = paymentFuture.get(timeout, TimeUnit.SECONDS);
-            LOG.info("Received payment response: " + paymentResponse);
+            LOG.info("Step 5: Payment response received - authorized: {}, message: {}",
+                    paymentResponse != null ? paymentResponse.isAuthorised() : "null",
+                    paymentResponse != null ? paymentResponse.getMessage() : "null");
+
             if (paymentResponse == null) {
+                LOG.error("Step 5: Payment failed - Unable to parse authorization packet");
                 throw new PaymentDeclinedException("Unable to parse authorisation packet");
             }
             if (!paymentResponse.isAuthorised()) {
+                LOG.error("Step 5: Payment declined - {}", paymentResponse.getMessage());
                 throw new PaymentDeclinedException(paymentResponse.getMessage());
             }
 
-            // Ship
-            String customerId = customerFuture.get(timeout, TimeUnit.SECONDS).getContent().getId();
+            // Step 6: Request shipping
+            String customerId = customerModel.getContent().getId();
+            LOG.info("Step 6: Requesting shipment for customer: {}, shipping URI: {}", customerId, config.getShippingUri());
+
             Future<Shipment> shipmentFuture = asyncGetService.postResource(config.getShippingUri(), new Shipment
                     (customerId), new ParameterizedTypeReference<Shipment>() {
             });
 
+            Shipment shipment = shipmentFuture.get(timeout, TimeUnit.SECONDS);
+            LOG.info("Step 6: Shipment response received: {}", shipment);
+
+            // Step 7: Create order object
+            LOG.info("Step 7: Creating order object...");
             CustomerOrder order = new CustomerOrder(
                     null,
                     customerId,
-                    customerFuture.get(timeout, TimeUnit.SECONDS).getContent(),
-                    addressFuture.get(timeout, TimeUnit.SECONDS).getContent(),
-                    cardFuture.get(timeout, TimeUnit.SECONDS).getContent(),
-                    itemsFuture.get(timeout, TimeUnit.SECONDS),
-                    shipmentFuture.get(timeout, TimeUnit.SECONDS),
+                    customerModel.getContent(),
+                    addressModel.getContent(),
+                    cardModel.getContent(),
+                    items,
+                    shipment,
                     Calendar.getInstance().getTime(),
                     amount);
-            LOG.debug("Received data: " + order.toString());
+            LOG.info("Step 7: Order object created: {}", order);
 
+            // Step 8: Save to database
+            LOG.info("Step 8: Saving order to MongoDB...");
             CustomerOrder savedOrder = customerOrderRepository.save(order);
-            LOG.debug("Saved order: " + savedOrder);
+            LOG.info("Step 8: Order saved successfully with ID: {}", savedOrder.getId());
+            LOG.info("=== ORDER CREATION COMPLETED SUCCESSFULLY ===");
 
             return savedOrder;
         } catch (TimeoutException e) {
+            LOG.error("ORDER CREATION FAILED - Timeout waiting for service response", e);
+            LOG.error("Timeout details: timeout setting = {} seconds", timeout);
             throw new IllegalStateException("Unable to create order due to timeout from one of the services.", e);
-        } catch (InterruptedException | ExecutionException e) {
-            throw new IllegalStateException("Unable to create order due to unspecified error.", e);
+        } catch (InterruptedException e) {
+            LOG.error("ORDER CREATION FAILED - Thread interrupted during order processing", e);
+            throw new IllegalStateException("Unable to create order due to interruption.", e);
+        } catch (ExecutionException e) {
+            LOG.error("ORDER CREATION FAILED - Execution exception occurred", e);
+            LOG.error("Root cause: {}", e.getCause() != null ? e.getCause().getMessage() : "unknown");
+            if (e.getCause() != null) {
+                LOG.error("Root cause stack trace:", e.getCause());
+            }
+            throw new IllegalStateException("Unable to create order due to error: " +
+                    (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()), e);
+        } catch (InvalidOrderException | PaymentDeclinedException e) {
+            LOG.error("ORDER CREATION FAILED - Business validation error: {}", e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            LOG.error("ORDER CREATION FAILED - Unexpected error occurred", e);
+            LOG.error("Error type: {}, Message: {}", e.getClass().getName(), e.getMessage());
+            throw new IllegalStateException("Unable to create order due to unexpected error: " + e.getMessage(), e);
         }
-    }
-
-    private String parseId(String href) {
-        Pattern idPattern = Pattern.compile("[\\w-]+$");
-        Matcher matcher = idPattern.matcher(href);
-        if (!matcher.find()) {
-            throw new IllegalStateException("Could not parse user ID from: " + href);
-        }
-        return matcher.group(0);
     }
 
 //    TODO: Add link to shipping
