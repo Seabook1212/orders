@@ -15,6 +15,7 @@ import works.weave.socks.orders.entities.*;
 import works.weave.socks.orders.repositories.CustomerOrderRepository;
 import works.weave.socks.orders.resources.NewOrderResource;
 import works.weave.socks.orders.services.AsyncGetService;
+import works.weave.socks.orders.services.OrderService;
 import works.weave.socks.orders.values.PaymentRequest;
 import works.weave.socks.orders.values.PaymentResponse;
 
@@ -41,6 +42,9 @@ public class OrdersController {
 
     @Autowired
     private CustomerOrderRepository customerOrderRepository;
+
+    @Autowired
+    private OrderService orderService;
 
     @Value(value = "${http.timeout:5}")
     private long timeout;
@@ -160,9 +164,9 @@ public class OrdersController {
                     amount);
             LOG.info("Step 7: Order object created: {}", order);
 
-            // Step 8: Save to database
+            // Step 8: Save to database with tracing
             LOG.info("Step 8: Saving order to MongoDB...");
-            CustomerOrder savedOrder = customerOrderRepository.save(order);
+            CustomerOrder savedOrder = orderService.saveOrder(order);
             LOG.info("Step 8: Order saved successfully with ID: {}", savedOrder.getId());
             LOG.info("=== ORDER CREATION COMPLETED SUCCESSFULLY ===");
 
