@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.observation.ClientRequestObservationConvention;
 import org.springframework.http.server.observation.ServerRequestObservationContext;
 
 import io.micrometer.observation.ObservationPredicate;
@@ -14,6 +15,16 @@ import io.micrometer.observation.ObservationPredicate;
 @Configuration
 public class TracingConfiguration {
     private static final Logger LOG = LoggerFactory.getLogger(TracingConfiguration.class);
+
+    /**
+     * Custom observation convention for HTTP client calls that adds peer.service
+     * and other semantic attributes for Jaeger dependency tracking.
+     */
+    @Bean
+    public ClientRequestObservationConvention peerServiceClientRequestObservationConvention() {
+        LOG.info("Registering PeerServiceClientRequestObservationConvention for HTTP client tracing");
+        return new PeerServiceClientRequestObservationConvention();
+    }
 
     /**
      * Skip tracing for health checks and monitoring endpoints
