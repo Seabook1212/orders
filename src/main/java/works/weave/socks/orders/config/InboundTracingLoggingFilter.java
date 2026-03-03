@@ -46,22 +46,22 @@ public class InboundTracingLoggingFilter implements Filter {
 
             // Skip logging for health/metrics endpoints
             if (!isMonitoringEndpoint(uri)) {
-                LOG.info("[InboundTracing] ====== Incoming Request: {} {} ======", method, uri);
+                LOG.debug("[InboundTracing] ====== Incoming Request: {} {} ======", method, uri);
 
                 boolean hasTraceHeaders = false;
                 for (String headerName : B3_HEADERS) {
                     String headerValue = httpRequest.getHeader(headerName);
                     if (headerValue != null && !headerValue.isEmpty()) {
-                        LOG.info("[InboundTracing] Header: {} = {}", headerName, headerValue);
+                        LOG.debug("[InboundTracing] Header: {} = {}", headerName, headerValue);
                         hasTraceHeaders = true;
                     }
                 }
 
                 if (!hasTraceHeaders) {
-                    LOG.warn("[InboundTracing] No B3/W3C trace headers found in request to: {} {}", method, uri);
+                    LOG.debug("[InboundTracing] No B3/W3C trace headers found in request to: {} {}", method, uri);
                 }
 
-                LOG.info("[InboundTracing] ==========================================");
+                LOG.debug("[InboundTracing] ==========================================");
             }
         }
 

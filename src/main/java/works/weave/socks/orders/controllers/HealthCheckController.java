@@ -4,7 +4,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import works.weave.socks.orders.entities.HealthCheck;
+import works.weave.socks.orders.support.FailureClassifier;
 
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -15,6 +18,7 @@ import java.util.Map;
 
 @RestController
 public class HealthCheckController {
+    private static final Logger LOG = LoggerFactory.getLogger(HealthCheckController.class);
 
     @Autowired
     private MongoTemplate mongoTemplate;
@@ -35,6 +39,9 @@ public class HealthCheckController {
          mongoTemplate.executeCommand("{ buildInfo: 1 }");
       } catch (Exception e) {
          database.setStatus("err");
+         LOG.warn("health_check_dependency_failed dependency=orders-db operation=buildInfo error_classification={} cause_type={} cause_message={}",
+                 FailureClassifier.classify(e), FailureClassifier.rootCause(e).getClass().getSimpleName(),
+                 FailureClassifier.rootCause(e).getMessage(), e);
       }
 
       healthChecks.add(app);

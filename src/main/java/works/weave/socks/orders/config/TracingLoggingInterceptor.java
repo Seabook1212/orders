@@ -32,21 +32,21 @@ public class TracingLoggingInterceptor implements ClientHttpRequestInterceptor {
     public ClientHttpResponse intercept(HttpRequest request, byte[] body,
                                         ClientHttpRequestExecution execution) throws IOException {
 
-        // Log trace headers being propagated
-        LOG.info("[TracingInterceptor] Outgoing request to: {} {}", request.getMethod(), request.getURI());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("[TracingInterceptor] Outgoing request to: {} {}", request.getMethod(), request.getURI());
+        }
 
         boolean hasTraceHeaders = false;
         for (String headerName : TRACE_HEADERS) {
             List<String> headerValues = request.getHeaders().get(headerName);
             if (headerValues != null && !headerValues.isEmpty()) {
-                LOG.info("[TracingInterceptor] Trace header: {} = {}", headerName, headerValues.get(0));
+                LOG.debug("[TracingInterceptor] Trace header: {} = {}", headerName, headerValues.get(0));
                 hasTraceHeaders = true;
             }
         }
 
         if (!hasTraceHeaders) {
-            LOG.warn("[TracingInterceptor] No trace headers found in outgoing request to: {}", request.getURI());
-            LOG.warn("[TracingInterceptor] All headers: {}", request.getHeaders().keySet());
+            LOG.debug("[TracingInterceptor] No trace headers found in outgoing request to: {}", request.getURI());
         }
 
         // Continue with the request

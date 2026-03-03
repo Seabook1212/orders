@@ -47,22 +47,22 @@ public class TraceContextDiagnosticFilter implements Filter {
     }
 
     private void logTraceContext(HttpServletRequest request) {
-        LOG.info("[TraceDiagnostic] ====== Extracted Trace Context ======");
+        LOG.debug("[TraceDiagnostic] ====== Extracted Trace Context ======");
 
         if (tracer == null) {
-            LOG.warn("[TraceDiagnostic] Tracer is NULL - tracing not configured!");
+            LOG.debug("[TraceDiagnostic] Tracer is NULL - tracing not configured!");
             return;
         }
 
         Span currentSpan = tracer.currentSpan();
         if (currentSpan == null) {
-            LOG.warn("[TraceDiagnostic] Current span is NULL - no trace context extracted!");
+            LOG.debug("[TraceDiagnostic] Current span is NULL - no trace context extracted!");
             return;
         }
 
         TraceContext context = currentSpan.context();
         if (context == null) {
-            LOG.warn("[TraceDiagnostic] TraceContext is NULL!");
+            LOG.debug("[TraceDiagnostic] TraceContext is NULL!");
             return;
         }
 
@@ -71,23 +71,23 @@ public class TraceContextDiagnosticFilter implements Filter {
         String spanId = context.spanIdString();
         String parentSpanId = context.parentIdString();
 
-        LOG.info("[TraceDiagnostic] Extracted traceId: {}", traceId);
-        LOG.info("[TraceDiagnostic] Extracted spanId (current): {}", spanId);
-        LOG.info("[TraceDiagnostic] Extracted parentSpanId: {}", parentSpanId);
+        LOG.debug("[TraceDiagnostic] Extracted traceId: {}", traceId);
+        LOG.debug("[TraceDiagnostic] Extracted spanId (current): {}", spanId);
+        LOG.debug("[TraceDiagnostic] Extracted parentSpanId: {}", parentSpanId);
 
         // Log what we received vs what was extracted
         String receivedSpanId = request.getHeader("X-B3-SpanId");
-        LOG.info("[TraceDiagnostic] Received X-B3-SpanId: {}", receivedSpanId);
-        LOG.info("[TraceDiagnostic] Expected parentSpanId should be: {}", receivedSpanId);
+        LOG.debug("[TraceDiagnostic] Received X-B3-SpanId: {}", receivedSpanId);
+        LOG.debug("[TraceDiagnostic] Expected parentSpanId should be: {}", receivedSpanId);
 
         if (receivedSpanId != null && !receivedSpanId.equals(parentSpanId)) {
             LOG.error("[TraceDiagnostic] MISMATCH! parentSpanId ({}) != received X-B3-SpanId ({})",
                     parentSpanId, receivedSpanId);
         } else if (receivedSpanId != null && receivedSpanId.equals(parentSpanId)) {
-            LOG.info("[TraceDiagnostic] CORRECT! parentSpanId matches received X-B3-SpanId");
+            LOG.debug("[TraceDiagnostic] CORRECT! parentSpanId matches received X-B3-SpanId");
         }
 
-        LOG.info("[TraceDiagnostic] =====================================");
+        LOG.debug("[TraceDiagnostic] =====================================");
     }
 
     private boolean isMonitoringEndpoint(String uri) {

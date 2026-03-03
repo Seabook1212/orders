@@ -10,10 +10,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.Duration;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
-import java.util.ArrayList;
-import java.util.List;
 
 @Configuration
 public class RestProxyTemplate {
@@ -25,15 +24,21 @@ public class RestProxyTemplate {
     @Value("${proxy.port:}")
     private String port;
 
+    @Value("${http.timeout:5}")
+    private long timeoutSeconds;
+
     @Autowired
     private RestTemplateBuilder restTemplateBuilder;
 
     @Bean
     public RestTemplate restTemplate() {
         // Use RestTemplateBuilder which automatically configures tracing interceptors
-        RestTemplate restTemplate = restTemplateBuilder.build();
+        RestTemplate restTemplate = restTemplateBuilder
+                .setConnectTimeout(Duration.ofSeconds(timeoutSeconds))
+                .setReadTimeout(Duration.ofSeconds(timeoutSeconds))
+                .build();
 
-        logger.info("Configuring RestTemplate with tracing support");
+        logger.info("Configuring RestTemplate with connect/read timeout={}s", timeoutSeconds);
 
         // Add custom interceptor to log trace headers
         restTemplate.getInterceptors().add(new TracingLoggingInterceptor());
@@ -43,7 +48,7 @@ public class RestProxyTemplate {
             try {
                 portNr = Integer.parseInt(port);
             } catch (NumberFormatException e) {
-                logger.error("Unable to parse the proxy port number");
+                logger.error("Unable to parse HTTP proxy port value={}", port, e);
                 return restTemplate;
             }
 
@@ -52,6 +57,8 @@ public class RestProxyTemplate {
             InetSocketAddress address = new InetSocketAddress(host, portNr);
             Proxy proxy = new Proxy(Proxy.Type.HTTP, address);
             factory.setProxy(proxy);
+            factory.setConnectTimeout((int) Duration.ofSeconds(timeoutSeconds).toMillis());
+            factory.setReadTimeout((int) Duration.ofSeconds(timeoutSeconds).toMillis());
             restTemplate.setRequestFactory(factory);
         }
 

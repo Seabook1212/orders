@@ -31,10 +31,12 @@ public class MongoConfiguration extends AbstractMongoClientConfiguration {
     @Override
     protected void configureClientSettings(MongoClientSettings.Builder builder) {
         LOG.info("Configuring MongoDB client with connection pooling and retry settings");
-        LOG.info("MongoDB URI: {}", mongoUri);
 
         // Parse connection string
         ConnectionString connectionString = new ConnectionString(mongoUri);
+        LOG.info("MongoDB target configured: hosts={} database={}",
+                connectionString.getHosts(),
+                connectionString.getDatabase());
 
         // Configure connection pool settings
         ConnectionPoolSettings poolSettings = ConnectionPoolSettings.builder()

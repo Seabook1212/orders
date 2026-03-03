@@ -1,24 +1,25 @@
 package works.weave.socks.orders.services;
 
+import brave.Tracer;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.hateoas.MediaTypes;
-import org.springframework.hateoas.EntityModel;
-import org.springframework.hateoas.CollectionModel;
 import org.springframework.http.MediaType;
 import org.springframework.http.RequestEntity;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.scheduling.annotation.Async;
-import org.springframework.scheduling.annotation.AsyncResult;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClientException;
 import works.weave.socks.orders.config.RestProxyTemplate;
+import works.weave.socks.orders.support.FailureClassifier;
+import works.weave.socks.orders.support.TraceExceptionTagger;
 
-import java.io.IOException;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Collections;
@@ -33,6 +34,15 @@ public class AsyncGetService {
     private final Logger LOG = LoggerFactory.getLogger(getClass());
 
     private final RestProxyTemplate restProxyTemplate;
+
+    @Autowired(required = false)
+    private Tracer tracer;
+
+    @Value("${http.timeout:5}")
+    private long timeoutSeconds;
+
+    @Value("${http.slow-call-threshold-ms:2000}")
+    private long slowCallThresholdMs;
 
     private final RestTemplate halTemplate;
 
@@ -52,26 +62,16 @@ public class AsyncGetService {
     @Async
     public <T> Future<T> getResource(URI url, ParameterizedTypeReference<T> type) throws
             InterruptedException {
-        LOG.info("[AsyncGetService] GET request starting - URL: {}", url);
+        String dependency = dependencyName(url);
         long startTime = System.currentTimeMillis();
 
         try {
             RequestEntity<Void> request = RequestEntity.get(url).accept(HAL_JSON).build();
-            LOG.debug("[AsyncGetService] Request details: {}", request);
-            LOG.debug("[AsyncGetService] Request headers: {}", request.getHeaders());
-
             T body = restProxyTemplate.getRestTemplate().exchange(request, type).getBody();
-
-            long duration = System.currentTimeMillis() - startTime;
-            LOG.info("[AsyncGetService] GET request completed - URL: {}, Duration: {}ms, Response received: {}",
-                    url, duration, body != null ? "success" : "null");
-            LOG.debug("[AsyncGetService] Response body: {}", body);
-
+            logSlowDependencyCallIfNeeded("GET", url, dependency, startTime);
             return CompletableFuture.completedFuture(body);
-        } catch (Exception e) {
-            long duration = System.currentTimeMillis() - startTime;
-            LOG.error("[AsyncGetService] GET request failed - URL: {}, Duration: {}ms, Error: {}",
-                    url, duration, e.getMessage(), e);
+        } catch (RestClientException e) {
+            logRemoteFailure("GET", url, dependency, startTime, e);
             throw e;
         }
     }
@@ -79,34 +79,23 @@ public class AsyncGetService {
     @Async
     public <T> Future<List<T>> getDataList(URI url, ParameterizedTypeReference<List<T>> type) throws
             InterruptedException {
-        LOG.info("[AsyncGetService] GET DATA LIST request starting - URL: {}", url);
+        String dependency = dependencyName(url);
         long startTime = System.currentTimeMillis();
 
         try {
             RequestEntity<Void> request = RequestEntity.get(url).accept(MediaType.APPLICATION_JSON).build();
-            LOG.debug("[AsyncGetService] Request details: {}", request);
-            LOG.debug("[AsyncGetService] Request headers: {}", request.getHeaders());
-
             List<T> body = restProxyTemplate.getRestTemplate().exchange(request, type).getBody();
-
-            long duration = System.currentTimeMillis() - startTime;
-            LOG.info("[AsyncGetService] GET DATA LIST completed - URL: {}, Duration: {}ms, Items count: {}",
-                    url, duration, body != null ? body.size() : 0);
-            LOG.debug("[AsyncGetService] Response body: {}", body);
-
+            logSlowDependencyCallIfNeeded("GET", url, dependency, startTime);
             return CompletableFuture.completedFuture(body);
-        } catch (Exception e) {
-            long duration = System.currentTimeMillis() - startTime;
-            LOG.error("[AsyncGetService] GET DATA LIST failed - URL: {}, Duration: {}ms, Error: {}",
-                    url, duration, e.getMessage(), e);
+        } catch (RestClientException e) {
+            logRemoteFailure("GET", url, dependency, startTime, e);
             throw e;
         }
     }
 
     @Async
     public <T, B> Future<T> postResource(URI uri, B body, ParameterizedTypeReference<T> returnType) {
-        LOG.info("[AsyncGetService] POST request starting - URI: {}", uri);
-        LOG.debug("[AsyncGetService] POST request body: {}", body);
+        String dependency = dependencyName(uri);
         long startTime = System.currentTimeMillis();
 
         try {
@@ -114,22 +103,51 @@ public class AsyncGetService {
                     .contentType(MediaType.APPLICATION_JSON)
                     .accept(MediaType.APPLICATION_JSON)
                     .body(body);
-            LOG.debug("[AsyncGetService] Request details: {}", request);
-            LOG.debug("[AsyncGetService] Request headers: {}", request.getHeaders());
-
             T responseBody = restProxyTemplate.getRestTemplate().exchange(request, returnType).getBody();
-
-            long duration = System.currentTimeMillis() - startTime;
-            LOG.info("[AsyncGetService] POST request completed - URI: {}, Duration: {}ms, Response received: {}",
-                    uri, duration, responseBody != null ? "success" : "null");
-            LOG.debug("[AsyncGetService] Response body: {}", responseBody);
-
+            logSlowDependencyCallIfNeeded("POST", uri, dependency, startTime);
             return CompletableFuture.completedFuture(responseBody);
-        } catch (Exception e) {
-            long duration = System.currentTimeMillis() - startTime;
-            LOG.error("[AsyncGetService] POST request failed - URI: {}, Duration: {}ms, Error: {}",
-                    uri, duration, e.getMessage(), e);
+        } catch (RestClientException e) {
+            logRemoteFailure("POST", uri, dependency, startTime, e);
             throw e;
         }
+    }
+
+    private void logRemoteFailure(String method, URI uri, String dependency, long startTime, Exception exception) {
+        long duration = System.currentTimeMillis() - startTime;
+        Throwable rootCause = FailureClassifier.rootCause(exception);
+        TraceExceptionTagger.tagCurrentSpan(tracer, exception);
+        LOG.error(
+                "dependency_call_failed dependency={} method={} uri={} latency_ms={} timeout_seconds={} error_classification={} cause_type={} cause_message={}",
+                dependency,
+                method,
+                uri,
+                duration,
+                timeoutSeconds,
+                FailureClassifier.classify(exception),
+                rootCause.getClass().getSimpleName(),
+                rootCause.getMessage(),
+                exception
+        );
+    }
+
+    private void logSlowDependencyCallIfNeeded(String method, URI uri, String dependency, long startTime) {
+        long duration = System.currentTimeMillis() - startTime;
+        if (duration >= slowCallThresholdMs) {
+            LOG.warn(
+                    "dependency_call_slow dependency={} method={} uri={} latency_ms={} slow_threshold_ms={}",
+                    dependency,
+                    method,
+                    uri,
+                    duration,
+                    slowCallThresholdMs
+            );
+        } else if (LOG.isDebugEnabled()) {
+            LOG.debug("dependency_call_completed dependency={} method={} uri={} latency_ms={}",
+                    dependency, method, uri, duration);
+        }
+    }
+
+    private String dependencyName(URI uri) {
+        return uri.getHost() == null ? uri.toString() : uri.getHost();
     }
 }

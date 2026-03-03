@@ -12,6 +12,8 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
 
 /**
  * Configuration for async method execution with trace context propagation
@@ -35,6 +37,18 @@ public class AsyncConfiguration implements AsyncConfigurer {
         executor.setMaxPoolSize(50);
         executor.setQueueCapacity(100);
         executor.setThreadNamePrefix("async-");
+        executor.setRejectedExecutionHandler((runnable, threadPoolExecutor) -> {
+            ThreadPoolExecutor poolExecutor = (ThreadPoolExecutor) threadPoolExecutor;
+            LOG.error(
+                    "async_executor_rejected queue_size={} queue_remaining_capacity={} active_threads={} pool_size={} max_pool_size={}",
+                    poolExecutor.getQueue().size(),
+                    poolExecutor.getQueue().remainingCapacity(),
+                    poolExecutor.getActiveCount(),
+                    poolExecutor.getPoolSize(),
+                    poolExecutor.getMaximumPoolSize()
+            );
+            throw new RejectedExecutionException("Async executor queue is full");
+        });
 
         // Add task decorator to propagate trace context
         executor.setTaskDecorator(new TraceContextTaskDecorator());

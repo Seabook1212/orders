@@ -13,6 +13,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import works.weave.socks.orders.support.FailureClassifier;
+import works.weave.socks.orders.support.TraceExceptionTagger;
 
 import java.util.List;
 
@@ -105,9 +107,8 @@ public class RepositoryTracingAspect {
                         return orders;
                     } catch (Throwable e) {
                         long duration = System.currentTimeMillis() - startTime;
-                        LOG.error("[RepositoryTracingAspect] Error finding orders for customer: {}, duration: {}ms",
-                                customerId, duration, e);
-                        throw new RuntimeException(e);
+                        logRepositoryFailure("findByCustomerId", customerId, duration, e);
+                        throw propagateRepositoryFailure(e);
                     }
                 });
     }
@@ -147,9 +148,8 @@ public class RepositoryTracingAspect {
                         return result;
                     } catch (Throwable e) {
                         long duration = System.currentTimeMillis() - startTime;
-                        LOG.error("[RepositoryTracingAspect] Error finding order by ID: {}, duration: {}ms",
-                                orderId, duration, e);
-                        throw new RuntimeException(e);
+                        logRepositoryFailure("findById", orderId, duration, e);
+                        throw propagateRepositoryFailure(e);
                     }
                 });
     }
@@ -185,8 +185,8 @@ public class RepositoryTracingAspect {
                         return saved;
                     } catch (Throwable e) {
                         long duration = System.currentTimeMillis() - startTime;
-                        LOG.error("[RepositoryTracingAspect] Error saving order, duration: {}ms", duration, e);
-                        throw new RuntimeException(e);
+                        logRepositoryFailure("save", "unknown", duration, e);
+                        throw propagateRepositoryFailure(e);
                     }
                 });
     }
@@ -224,8 +224,8 @@ public class RepositoryTracingAspect {
                         return orders;
                     } catch (Throwable e) {
                         long duration = System.currentTimeMillis() - startTime;
-                        LOG.error("[RepositoryTracingAspect] Error finding all orders, duration: {}ms", duration, e);
-                        throw new RuntimeException(e);
+                        logRepositoryFailure("findAll", "all", duration, e);
+                        throw propagateRepositoryFailure(e);
                     }
                 });
     }
@@ -265,11 +265,34 @@ public class RepositoryTracingAspect {
                         return null;
                     } catch (Throwable e) {
                         long duration = System.currentTimeMillis() - startTime;
-                        LOG.error("[RepositoryTracingAspect] Error deleting order: {}, duration: {}ms",
-                                orderId, duration, e);
-                        throw new RuntimeException(e);
+                        logRepositoryFailure("deleteById", orderId, duration, e);
+                        throw propagateRepositoryFailure(e);
                     }
                 });
+    }
+
+    private void logRepositoryFailure(String operation, String entityId, long duration, Throwable throwable) {
+        Throwable rootCause = FailureClassifier.rootCause(throwable);
+        TraceExceptionTagger.tagCurrentSpan(tracer, throwable);
+        LOG.error("db_call_failed db_system=mongodb db_name={} db_collection=customerOrders operation={} entity_id={} latency_ms={} error_classification={} cause_type={} cause_message={}",
+                dbName,
+                operation,
+                entityId,
+                duration,
+                FailureClassifier.classify(throwable),
+                rootCause.getClass().getSimpleName(),
+                rootCause.getMessage(),
+                throwable);
+    }
+
+    private RuntimeException propagateRepositoryFailure(Throwable throwable) {
+        if (throwable instanceof RuntimeException runtimeException) {
+            return runtimeException;
+        }
+        if (throwable instanceof Error error) {
+            throw error;
+        }
+        return new IllegalStateException("Unexpected checked repository exception", throwable);
     }
 
     private void markCurrentSpanAsClient() {
