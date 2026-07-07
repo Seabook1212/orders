@@ -1,4 +1,5 @@
-FROM eclipse-temurin:17-jre
+#FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:17-jdk
 
 ENV	SERVICE_USER=myuser \
 	SERVICE_UID=10001 \
@@ -18,6 +19,9 @@ WORKDIR /usr/src/app
 COPY ./target/*.jar ./app.jar
 
 RUN	chown -R ${SERVICE_USER}:${SERVICE_GROUP} ./app.jar
+
+RUN mkdir -p /usr/local/byteman/lib \
+ && chown -R ${SERVICE_USER}:${SERVICE_GROUP} /usr/local/byteman
 
 USER ${SERVICE_USER}
 # USER root
